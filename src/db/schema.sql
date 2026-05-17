@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS mail_logs (
   status TEXT NOT NULL,
   error_message TEXT,
   request_ip TEXT,
-  content_preview TEXT
+  content_text TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_mail_logs_created_at

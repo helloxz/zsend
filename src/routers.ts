@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import {index} from "./api/index";
-import {send} from "./api/sent";
+import {send} from "./api/send";
 import type { AppBindings } from "./types/env";
 
 export const router = new Hono<AppBindings>();

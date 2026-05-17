@@ -1,0 +1,2 @@
+TOKEN=your-local-token
+SMTP_CONFIGS=[{"host":"smtp.example.com","port":587,"username":"no-reply@example.com","password":"your-smtp-password","protocol":"tls","senderName":"ZSend"}]

@@ -4,27 +4,6 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-05-17",
   "compatibility_flags": ["nodejs_compat"],
-  "vars": {
-    "TOKEN":"blog.xiaoz.org",
-    "SMTP_CONFIGS": [
-      {
-        "host": "mail.xiaoz.org",
-        "port": 587,
-        "username": "test@xiaoz.org",
-        "password": "xiaoz.org",
-        "protocol": "tls",
-        "senderName": "ZSend A"
-      },
-      {
-        "host": "mail.xiaoz.org",
-        "port": 465,
-        "username": "dev@xiaoz.org",
-        "password": "xiaoz.org",
-        "protocol": "ssl",
-        "senderName": "ZSend B"
-      }
-    ]
-  },
   "d1_databases": [
     {
       "binding": "DB",

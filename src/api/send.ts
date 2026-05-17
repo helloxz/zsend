@@ -1,7 +1,8 @@
 import { marked } from "marked";
 import { Context } from "hono";
 import { WorkerMailer } from "worker-mailer";
-import type { AppBindings } from "../types/env";
+import { insertMailLog } from "../db";
+import type { AppBindings, AppD1Database } from "../types/env";
 
 type SendBody = {
     from?: string;
@@ -24,12 +25,21 @@ type SmtpConfig = {
 type MailType = "text" | "html" | "markdown";
 
 type PreparedMail = {
+    from: string;
     smtpConfig: SmtpConfig;
     finalSenderName?: string;
     to: string;
     title: string;
+    mailType: MailType;
     text: string;
     html: string;
+    contentText: string;
+    requestIp?: string | null;
+};
+
+type SendMailResult = {
+    status: "success" | "failed";
+    errorMessage?: string;
 };
 
 const parseSmtpConfigs = (value: unknown): SmtpConfig[] => {
@@ -83,6 +93,36 @@ const buildTextContent = (content: string, type: MailType) => {
     }
 
     return content;
+};
+
+const decodeHtmlEntities = (value: string) => {
+    return value
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'");
+};
+
+const extractLogContent = (html: string) => {
+    // 日志里不保留富文本标签，只存清洗后的纯文本，方便后台直接查看和搜索正文内容。
+    return decodeHtmlEntities(
+        html
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<\/p>/gi, "\n")
+            .replace(/<\/div>/gi, "\n")
+            .replace(/<\/li>/gi, "\n")
+            .replace(/<\/tr>/gi, "\n")
+            .replace(/<[^>]+>/g, " ")
+    )
+        .replace(/\r/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]+/g, " ")
+        .replace(/ *\n */g, "\n")
+        .trim();
 };
 
 const buildHtml = async (title: string, content: string, type: MailType) => {
@@ -277,18 +317,40 @@ const sendEmail = async (mail: PreparedMail) => {
     );
 };
 
-const sendEmailWithRetry = async (mail: PreparedMail) => {
+const writeMailLog = async (db: AppD1Database | undefined, mail: PreparedMail, result: SendMailResult) => {
+    await insertMailLog(db, {
+        fromEmail: mail.from,
+        toEmail: mail.to,
+        subject: mail.title,
+        senderName: mail.finalSenderName,
+        mailType: mail.mailType,
+        smtpUsername: mail.smtpConfig.username,
+        status: result.status,
+        errorMessage: result.errorMessage,
+        requestIp: mail.requestIp,
+        contentText: mail.contentText,
+    });
+};
+
+const sendEmailWithRetry = async (mail: PreparedMail): Promise<SendMailResult> => {
     try {
         await sendEmail(mail);
+        return {
+            status: "success",
+        };
     } catch (firstError) {
         // 首次发送失败后等待 10 秒再重试一次，避免瞬时网络抖动直接导致发送失败。
         await sleep(10000);
 
         try {
             await sendEmail(mail);
+            return {
+                status: "success",
+            };
         } catch (secondError) {
             const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
             const secondMessage = secondError instanceof Error ? secondError.message : String(secondError);
+            const finalErrorMessage = `First attempt: ${firstMessage}; Retry failed: ${secondMessage}`;
 
             // 只打印排查所需的业务字段，不输出 SMTP 密码等敏感信息。
             console.error("Send email failed after retry", {
@@ -299,6 +361,11 @@ const sendEmailWithRetry = async (mail: PreparedMail) => {
                 firstError: firstMessage,
                 secondError: secondMessage,
             });
+
+            return {
+                status: "failed",
+                errorMessage: finalErrorMessage,
+            };
         }
     }
 };
@@ -355,19 +422,44 @@ export const send = async (c: Context<AppBindings>) => {
         // 根据正文类型生成最终 HTML；title 仅作为邮件 subject 使用，不插入邮件正文模板。
         const html = await buildHtml(title, content, mailType);
         const text = buildTextContent(content, mailType);
+        const contentText = extractLogContent(html);
         // 前端传了 sender_name 且不是空字符串时，优先使用它；否则回退到 SMTP 默认配置。
         const finalSenderName = sender_name?.trim() || smtpConfig.senderName;
+        const requestIp = c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For") || null;
 
-        // 发信动作放到 waitUntil 中异步执行，接口先返回，避免前端等待 SMTP 往返耗时。
+        // 发信和日志都放到 waitUntil 中异步执行，接口快速返回，但日志里记录真实的最终发信结果。
         c.executionCtx.waitUntil(
-            sendEmailWithRetry({
-                smtpConfig,
-                finalSenderName,
-                to,
-                title,
-                text,
-                html,
-            })
+            (async () => {
+                const mail: PreparedMail = {
+                    from,
+                    smtpConfig,
+                    finalSenderName,
+                    to,
+                    title,
+                    mailType,
+                    text,
+                    html,
+                    contentText,
+                    requestIp,
+                };
+
+                const result = await sendEmailWithRetry(mail);
+
+                try {
+                    await writeMailLog(c.env.DB, mail, result);
+                } catch (logError) {
+                    const logMessage = logError instanceof Error ? logError.message : String(logError);
+
+                    // 日志写入失败不影响接口返回，但要保留错误信息，方便排查 D1 配置或 SQL 问题。
+                    console.error("Write mail log failed", {
+                        from,
+                        to,
+                        title,
+                        status: result.status,
+                        logError: logMessage,
+                    });
+                }
+            })()
         );
 
         return c.json({
