@@ -18,6 +18,7 @@ type SmtpConfig = {
     port: number;
     username: string;
     password: string;
+    fromEmail?: string;
     protocol?: string;
     senderName?: string;
 };
@@ -75,6 +76,21 @@ const normalizeType = (type?: string): MailType | null => {
     }
 
     return null;
+};
+
+const getSmtpFromEmail = (smtpConfig: SmtpConfig) => {
+    const fromEmail = smtpConfig.fromEmail?.trim();
+    return fromEmail || smtpConfig.username;
+};
+
+const findSmtpConfig = (smtpConfigs: SmtpConfig[], from: string) => {
+    const matchedByFromEmail = smtpConfigs.find((item) => item.fromEmail?.trim() === from);
+
+    if (matchedByFromEmail) {
+        return matchedByFromEmail;
+    }
+
+    return smtpConfigs.find((item) => item.username === from);
 };
 
 const buildTextContent = (content: string, type: MailType) => {
@@ -286,6 +302,7 @@ const sleep = (ms: number) => {
 
 const sendEmail = async (mail: PreparedMail) => {
     const protocol = mail.smtpConfig.protocol?.toLowerCase();
+    const fromEmail = getSmtpFromEmail(mail.smtpConfig);
 
     // protocol=ssl 走 465 这类隐式 TLS；其他情况默认按 STARTTLS 方式发信。
     await WorkerMailer.send(
@@ -303,11 +320,11 @@ const sendEmail = async (mail: PreparedMail) => {
             },
         },
         {
-            // from 必须使用匹配到的 SMTP 账号，避免出现代发地址与认证账号不一致的问题。
+            // SMTP 登录账号和发件邮箱允许分离；未单独配置发件邮箱时回退到 username。
             // 发件人名称允许被请求参数覆盖，便于同一 SMTP 账号下按业务场景展示不同名称。
             from: {
                 name: mail.finalSenderName,
-                email: mail.smtpConfig.username,
+                email: fromEmail,
             },
             to: mail.to,
             subject: mail.title,
@@ -319,7 +336,7 @@ const sendEmail = async (mail: PreparedMail) => {
 
 const writeMailLog = async (db: AppD1Database | undefined, mail: PreparedMail, result: SendMailResult) => {
     await insertMailLog(db, {
-        fromEmail: mail.from,
+        fromEmail: getSmtpFromEmail(mail.smtpConfig),
         toEmail: mail.to,
         subject: mail.title,
         senderName: mail.finalSenderName,
@@ -333,6 +350,8 @@ const writeMailLog = async (db: AppD1Database | undefined, mail: PreparedMail, r
 };
 
 const sendEmailWithRetry = async (mail: PreparedMail): Promise<SendMailResult> => {
+    const fromEmail = getSmtpFromEmail(mail.smtpConfig);
+
     try {
         await sendEmail(mail);
         return {
@@ -354,7 +373,7 @@ const sendEmailWithRetry = async (mail: PreparedMail): Promise<SendMailResult> =
 
             // 只打印排查所需的业务字段，不输出 SMTP 密码等敏感信息。
             console.error("Send email failed after retry", {
-                from: mail.smtpConfig.username,
+                from: fromEmail,
                 to: mail.to,
                 title: mail.title,
                 senderName: mail.finalSenderName,
@@ -408,8 +427,8 @@ export const send = async (c: Context<AppBindings>) => {
 
         // SMTP_CONFIGS 可能来自 Wrangler 的数组注入，也可能是 JSON 字符串，统一在这里兼容解析。
         const smtpConfigs = parseSmtpConfigs(c.env.SMTP_CONFIGS);
-        // 按请求里的 from 精确匹配 SMTP 配置的 username，确保每个发件地址使用对应账号发信。
-        const smtpConfig = smtpConfigs.find((item) => item.username === from);
+        // 先按 fromEmail 匹配；没命中再按 username 匹配，兼容前端继续传历史值。
+        const smtpConfig = findSmtpConfig(smtpConfigs, from);
 
         if (!smtpConfig) {
             return c.json({
