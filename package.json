@@ -1,0 +1,17 @@
+{
+  "name": "zsend",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "hono": "^4.12.19",
+    "marked": "^18.0.3",
+    "worker-mailer": "^1.2.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.4.0"
+  }
+}
