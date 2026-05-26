@@ -6,7 +6,7 @@ import type { AppBindings, AppD1Database } from "../types/env";
 
 type SendBody = {
     from?: string;
-    to?: string;
+    to?: string | string[];
     title?: string;
     content?: string;
     type?: "text" | "html" | "markdown" | string;
@@ -29,7 +29,7 @@ type PreparedMail = {
     from: string;
     smtpConfig: SmtpConfig;
     finalSenderName?: string;
-    to: string;
+    to: string | string[];
     title: string;
     mailType: MailType;
     text: string;
@@ -139,6 +139,10 @@ const extractLogContent = (html: string) => {
         .replace(/[ \t]+/g, " ")
         .replace(/ *\n */g, "\n")
         .trim();
+};
+
+const isValidEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
 
 const buildHtml = async (title: string, content: string, type: MailType) => {
@@ -337,7 +341,7 @@ const sendEmail = async (mail: PreparedMail) => {
 const writeMailLog = async (db: AppD1Database | undefined, mail: PreparedMail, result: SendMailResult) => {
     await insertMailLog(db, {
         fromEmail: getSmtpFromEmail(mail.smtpConfig),
-        toEmail: mail.to,
+        toEmail: Array.isArray(mail.to) ? mail.to.join(",") : mail.to,
         subject: mail.title,
         senderName: mail.finalSenderName,
         mailType: mail.mailType,
@@ -425,6 +429,26 @@ export const send = async (c: Context<AppBindings>) => {
             });
         }
 
+        // 统一将 to 归一化为字符串数组，过滤空串并去重。
+        const toArray = Array.isArray(to) ? to : [to];
+        const toList = [...new Set(toArray.map((t) => t.trim()).filter(Boolean))];
+
+        if (toList.length === 0) {
+            return c.json({
+                code: 400,
+                msg: "to must contain at least one valid email address",
+                data: null,
+            });
+        }
+
+        if (!toList.every(isValidEmail)) {
+            return c.json({
+                code: 400,
+                msg: "to contains invalid email address",
+                data: null,
+            });
+        }
+
         // SMTP_CONFIGS 可能来自 Wrangler 的数组注入，也可能是 JSON 字符串，统一在这里兼容解析。
         const smtpConfigs = parseSmtpConfigs(c.env.SMTP_CONFIGS);
         // 先按 fromEmail 匹配；没命中再按 username 匹配，兼容前端继续传历史值。
@@ -453,7 +477,7 @@ export const send = async (c: Context<AppBindings>) => {
                     from,
                     smtpConfig,
                     finalSenderName,
-                    to,
+                    to: toList,
                     title,
                     mailType,
                     text,
@@ -472,7 +496,7 @@ export const send = async (c: Context<AppBindings>) => {
                     // 日志写入失败不影响接口返回，但要保留错误信息，方便排查 D1 配置或 SQL 问题。
                     console.error("Write mail log failed", {
                         from,
-                        to,
+                        to: toList,
                         title,
                         status: result.status,
                         logError: logMessage,
@@ -486,7 +510,7 @@ export const send = async (c: Context<AppBindings>) => {
             msg: "Email request accepted",
             data: {
                 from,
-                to,
+                to: toList,
                 title,
             },
         });
