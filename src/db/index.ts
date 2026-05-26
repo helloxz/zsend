@@ -92,3 +92,77 @@ export const insertMailLog = async (db: AppD1Database | undefined, payload: Mail
         payload.contentText ?? null
     ).run();
 };
+
+export type MailLog = {
+    id: string;
+    created_at: string;
+    from_email: string;
+    to_email: string;
+    subject: string;
+    sender_name: string | null;
+    mail_type: string;
+    smtp_username: string;
+    status: string;
+    error_message: string | null;
+    request_ip: string | null;
+    content_text: string | null;
+};
+
+export type QueryMailLogsParams = {
+    email?: string;
+    page?: number;
+    pageSize?: number;
+};
+
+export type QueryMailLogsResult = {
+    items: MailLog[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+};
+
+export const queryMailLogs = async (
+    db: AppD1Database | undefined,
+    params: QueryMailLogsParams
+): Promise<QueryMailLogsResult> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+
+    const page = params.page && params.page > 0 ? params.page : 1;
+    const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 20;
+    const offset = (page - 1) * pageSize;
+
+    let countQuery = "SELECT COUNT(*) as total FROM mail_logs";
+    let dataQuery = "SELECT * FROM mail_logs";
+    const conditions: string[] = [];
+    const bindings: string[] = [];
+
+    if (params.email) {
+        conditions.push("(from_email LIKE ? OR to_email LIKE ?)");
+        bindings.push(`%${params.email}%`, `%${params.email}%`);
+    }
+
+    if (conditions.length > 0) {
+        const whereClause = " WHERE " + conditions.join(" AND ");
+        countQuery += whereClause;
+        dataQuery += whereClause;
+    }
+
+    dataQuery += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+    const dataBindings = [...bindings, String(pageSize), String(offset)];
+
+    const countResult = await db.prepare(countQuery).bind(...bindings).first<{ total: number }>();
+    const total = countResult?.total ?? 0;
+
+    const items = await db.prepare(dataQuery).bind(...dataBindings).all<MailLog>();
+
+    return {
+        items: items.results || [],
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+    };
+};
