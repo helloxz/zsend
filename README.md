@@ -1,18 +1,19 @@
 # ZSend
 
-[中文文档](./README.zh-CN.md) | [Development Guide](./DEV.md)
+[中文文档](./README.zh-CN.md)
 
-ZSend is an SMTP-to-HTTP mail sending service built on Cloudflare Workers. It exposes an HTTP API, validates requests with a Bearer token, matches the sender address to the configured SMTP account, sends mail through SMTP, and records delivery logs in Cloudflare D1.
+ZSend is an SMTP-to-HTTP mail sending service built on Cloudflare Workers. It exposes an HTTP API, matches the sender address to the configured SMTP account, sends mail through SMTP, and records delivery logs in Cloudflare D1.
 
 ## Features
 
-- Built on Cloudflare Workers and `Hono`
+- Built on Cloudflare Workers and `Hono.js`
 - Send email over HTTP with multiple SMTP accounts
 - Match SMTP accounts by the request `from` address
 - Support `text`, `html`, and `markdown` content types
 - Retry once automatically when SMTP sending fails
 - Store mail delivery logs in Cloudflare D1
 - Protect the send endpoint with Bearer token authentication
+- View delivery logs via Web UI
 
 ### Send Email
 
@@ -38,7 +39,7 @@ Request body example:
 Field reference:
 
 - `from`: required, the server first tries to match `SMTP_CONFIGS[].fromEmail`; if no match is found, it falls back to `SMTP_CONFIGS[].username`
-- `to`: required, recipient email address
+- `to`: required, recipient email address, can be a string or array, e.g.: `["user1@example.com", "user2@example.com"]`
 - `title`: required, mail subject
 - `content`: required, mail body
 - `type`: optional, only `text`, `html`, and `markdown` are supported, default is `text`
@@ -60,7 +61,7 @@ curl -X POST "http://127.0.0.1:8000/api/v1/send" \
   }'
 ```
 
-### `SMTP_CONFIGS` shape
+### `SMTP_CONFIGS` Structure
 
 ```json
 [
@@ -86,66 +87,80 @@ Field reference:
 - `protocol`: use `ssl` for implicit TLS, otherwise it is treated as STARTTLS
 - `senderName`: default display name for that SMTP account
 
-For production, `SMTP_CONFIGS` should be injected as a JSON string through Cloudflare Secrets.
-
 ## Deploy to Cloudflare Workers
 
-### 1. Create a D1 database
+### Prerequisites
+
+1. Install [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
+2. Login to Cloudflare
+
+```bash
+wrangler login
+```
+
+### 1. Fork and Clone
+
+Fork this project to your GitHub account, then clone it locally:
+
+```bash
+git clone https://github.com/your-username/zsend.git
+cd zsend
+```
+
+### 2. Create D1 Database
 
 ```bash
 wrangler d1 create zsend
 ```
 
-After creation, copy the returned `database_name` and `database_id` into the `d1_databases` section of `wrangler.jsonc`, and keep the binding name as `DB`.
+After creation, you'll see output like:
 
-### 2. Configure Worker bindings
+```
+✅ Successfully created DB 'zsend'
+[[d1_databases]]
+binding = "DB"
+database_name = "zsend"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
 
-Do not keep real secrets in the repository. Inject them through Cloudflare.
+Copy the `database_id` and fill it into the `wrangler.jsonc` file.
 
-Recommended approach:
-
-- store `TOKEN` as a Cloudflare Secret
-- store `SMTP_CONFIGS` as a JSON string Secret
-- keep only non-sensitive or example values in the repository
-
-Example commands:
+### 3. Set Environment Variables
 
 ```bash
 wrangler secret put TOKEN
+# Enter any string as your Bearer Token
+
 wrangler secret put SMTP_CONFIGS
+# Enter your SMTP configuration as a JSON string, e.g.:
+# [{"host":"smtp.example.com","port":587,"username":"user@example.com","password":"your-password","protocol":"tls","senderName":"ZSend"}]
 ```
 
-Suggested `SMTP_CONFIGS` secret value:
-
-```json
-[
-  {
-    "host": "smtp.example.com",
-    "port": 587,
-    "username": "no-reply@example.com",
-    "password": "your-password",
-    "protocol": "tls",
-    "senderName": "ZSend"
-  }
-]
-```
-
-### 3. Deploy
+### 4. Deploy
 
 ```bash
-bun run deploy
+bun install
+wrangler deploy
 ```
 
-After deployment, Cloudflare will return the Worker URL. You can then call:
+After deployment, the Worker URL will be displayed, e.g.: `https://zsend.your-subdomain.workers.dev`
 
-- `GET /`
-- `POST /api/v1/send`
+### 5. Test
 
-## Security Notes
+```bash
+curl -X POST "https://zsend.your-subdomain.workers.dev/api/v1/send" \
+  -H "Authorization: Bearer your-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from": "no-reply@example.com",
+    "to": "user@example.com",
+    "title": "Welcome",
+    "content": "# Hello\nThis message was sent by ZSend.",
+    "type": "markdown",
+    "sender_name": "ZSend Notifications"
+  }'
+```
 
-- Do not commit real SMTP passwords to the repository
-- Do not keep production `TOKEN` values in `wrangler.jsonc`
-- Prefer Cloudflare Secrets for sensitive values
-- Prefer storing `SMTP_CONFIGS` as a JSON string in production
-- The send token grants real mail-sending access and must be kept private
-- Only expose SMTP accounts that you explicitly want this API to use
+### 6. View Logs
+
+Visit `https://zsend.your-subdomain.workers.dev` to view delivery logs via the Web UI.

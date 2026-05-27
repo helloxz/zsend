@@ -1,8 +1,8 @@
 # ZSend
 
-[English README](./README.md) | [开发文档](./DEV.md)
+[English README](./README.md)
 
-ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对外提供 HTTP API 和 Bearer Token 校验，会根据请求中的发件人地址匹配对应 SMTP 配置发送邮件，并将发送日志记录到 Cloudflare D1。
+ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对外提供 HTTP API，并根据请求中的发件人地址匹配对应 SMTP 配置发送邮件，并将发送日志记录到 Cloudflare D1。
 
 ## 项目特性
 
@@ -13,6 +13,7 @@ ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对
 - SMTP 发送失败时自动重试一次
 - 将邮件发送日志写入 Cloudflare D1
 - 发信接口使用 Bearer Token 鉴权
+- 支持WebUI查看发送日志
 
 ### 发送邮件
 
@@ -38,7 +39,7 @@ Content-Type: application/json
 字段说明：
 
 - `from`：必填，服务端会先尝试精确匹配某个 `SMTP_CONFIGS[].fromEmail`；如果没有命中，再回退匹配 `SMTP_CONFIGS[].username`
-- `to`：必填，收件人邮箱
+- `to`：必填，收件人邮箱，可以是字符串或数组。比如：`["user1@example.com", "user2@example.com"]`
 - `title`：必填，邮件主题
 - `content`：必填，邮件正文
 - `type`：可选，只支持 `text`、`html`、`markdown`，默认是 `text`
@@ -88,62 +89,66 @@ curl -X POST "http://127.0.0.1:8000/api/v1/send" \
 
 ## 部署到 Cloudflare Workers
 
-1、Fork本项目到您的Github账号
-2、在【CloudFlare后台 - 构建 - 存储和数据 - D1 SQL 数据库 - 创建数据库】
+### 前置条件
 
-![](https://img.rss.ink/2026/05/17/EyLsQgat.png)
-
-创建完成和复制`数据库名称`和`ID`
-
-![CleanShot 2026-05-17 at 15.33.35@2x.png](https://img.rss.ink/2026/05/17/IA8WskIZ.png)
-
-3、修改代码中的`wrangler.jsonc`，在`d1_databases`中配置：
-
-* `database_name`：数据库名称
-* `database_id`：数据库ID
-
-修改后记得提交代码修改。
-
-4、回到【CloudFlare后台 - 构建 - 计算 - Workers 和 Pages - 创建应用程序】
-
-![CleanShot 2026-05-17 at 15.38.52@2x.png](https://img.rss.ink/2026/05/17/cE740eYx.png)
-
-5、点击【Continue with GitHub】完成授权，并选择您刚刚Fork的zsend项目完成部署。
-
-![CleanShot 2026-05-17 at 15.40.28@2x.png](https://img.rss.ink/2026/05/17/r5hmaQIf.png)
-
-6、在设置中添加2个环境变量
-
-![CleanShot 2026-05-17 at 15.41.54@2x.png](https://img.rss.ink/2026/05/17/6VqXpiJJ.png)
-
-* `TOKEN`：任意字符串，后续调用接口需要使用这个字符串做为 Bearer Token（类型为文本）
-* `SMTP_CONFIGS`：SMTP 配置的 JSON 字符串（类型为JSON），示例：
-
-```
-[
-    {
-        "host": "mail.xiaoz.org",
-        "port": 587,
-        "username": "test@xiaoz.org",
-        "password": "xiaoz.org",
-        "protocol": "tls",
-        "senderName": "ZSend A"
-    },
-    {
-        "host": "mail.xiaoz.org",
-        "port": 465,
-        "username": "dev@xiaoz.org",
-        "password": "xiaoz.org",
-        "protocol": "ssl",
-        "senderName": "ZSend B"
-    }
-]
-```
-
-7、最后curl调用测试
+1. 安装 [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
+2. 登录 Cloudflare 账号
 
 ```bash
-curl -X POST "https://domain.com/api/v1/send" \
+wrangler login
+```
+
+### 1. Fork 并克隆项目
+
+Fork 本项目到您的 Github 账号，然后克隆到本地：
+
+```bash
+git clone https://github.com/your-username/zsend.git
+cd zsend
+```
+
+### 2. 创建 D1 数据库
+
+```bash
+wrangler d1 create zsend
+```
+
+创建成功后会输出类似信息：
+
+```
+✅ Successfully created DB 'zsend'
+[[d1_databases]]
+binding = "DB"
+database_name = "zsend"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
+
+将输出的 `database_id` 填入 `wrangler.jsonc` 文件中的 `database_id` 字段。
+
+### 3. 设置环境变量
+
+```bash
+wrangler secret put TOKEN
+# 输入任意字符串，后续调用接口需要使用这个字符串做为 Bearer Token
+
+wrangler secret put SMTP_CONFIGS
+# 输入 SMTP 配置的 JSON 字符串，例如：
+# [{"host":"smtp.example.com","port":587,"username":"user@example.com","password":"your-password","protocol":"tls","senderName":"ZSend"}]
+```
+
+### 4. 部署项目
+
+```bash
+bun install
+wrangler deploy
+```
+
+部署成功后会显示访问地址，例如：`https://zsend.your-subdomain.workers.dev`
+
+### 5. 测试发信
+
+```bash
+curl -X POST "https://zsend.your-subdomain.workers.dev/api/v1/send" \
   -H "Authorization: Bearer your-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -156,6 +161,6 @@ curl -X POST "https://domain.com/api/v1/send" \
   }'
 ```
 
-8、后续在D1控制台可以查看发信日志
+### 6. 查看日志
 
-![CleanShot 2026-05-17 at 15.56.23@2x.png](https://img.rss.ink/2026/05/17/BTWWpWU6.png)
+部署完成后，访问 `https://zsend.your-subdomain.workers.dev` 即可通过 Web UI 查看发信日志。
