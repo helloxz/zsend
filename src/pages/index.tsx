@@ -1,7 +1,7 @@
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 
-export const indexPage = (): HtmlEscapedString => {
+export const indexPage = (): HtmlEscapedString | Promise<HtmlEscapedString> => {
     return html`<!DOCTYPE html>
 <html lang="en">
 <head>
