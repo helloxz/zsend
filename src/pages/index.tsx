@@ -80,7 +80,10 @@ export const indexPage = (): HtmlEscapedString => {
         <div v-else>
             <div class="header-bar">
                 <span class="header-title">ZSend Mail Logs</span>
-                <el-button type="text" style="color: white;" @click="handleLogout">Logout</el-button>
+                <div>
+                    <el-button type="text" style="color: white;" @click="fetchConfig">View Config</el-button>
+                    <el-button type="text" style="color: white;" @click="handleLogout">Logout</el-button>
+                </div>
             </div>
             <div class="main-content">
                 <div class="search-bar">
@@ -136,6 +139,26 @@ export const indexPage = (): HtmlEscapedString => {
                     ></el-pagination>
                 </div>
             </div>
+
+            <el-dialog title="SMTP Configuration" :visible.sync="configDialogVisible" width="500px">
+                <div v-if="configLoading" style="text-align: center; padding: 20px;">
+                    <i class="el-icon-loading"></i> Loading...
+                </div>
+                <div v-else-if="configData.length === 0" style="text-align: center; padding: 20px; color: #909399;">
+                    No configuration found
+                </div>
+                <div v-else>
+                    <div v-for="(item, index) in configData" :key="index" style="margin-bottom: 16px; padding: 12px; background: #f5f7fa; border-radius: 4px;">
+                        <div style="margin-bottom: 8px; font-weight: bold; color: #409eff;">Config #{{ index + 1 }}</div>
+                        <div style="margin-bottom: 4px;"><strong>Username:</strong> {{ item.username }}</div>
+                        <div style="margin-bottom: 4px;"><strong>From Email:</strong> {{ item.fromEmail }}</div>
+                        <div><strong>Sender Name:</strong> {{ item.senderName }}</div>
+                    </div>
+                </div>
+                <span slot="footer">
+                    <el-button @click="configDialogVisible = false">Close</el-button>
+                </span>
+            </el-dialog>
         </div>
     </div>
 
@@ -157,6 +180,9 @@ export const indexPage = (): HtmlEscapedString => {
                     currentPage: 1,
                     pageSize: 20,
                     loading: false,
+                    configDialogVisible: false,
+                    configLoading: false,
+                    configData: [],
                 };
             },
             mounted: function() {
@@ -282,6 +308,32 @@ export const indexPage = (): HtmlEscapedString => {
                     var minutes = String(d.getMinutes()).padStart(2, '0');
                     var seconds = String(d.getSeconds()).padStart(2, '0');
                     return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
+                },
+                fetchConfig: function() {
+                    var self = this;
+                    self.configDialogVisible = true;
+                    self.configLoading = true;
+                    self.configData = [];
+                    fetch('/api/v1/config', {
+                        headers: { 'Authorization': 'Bearer ' + self.token },
+                    })
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.configData = data.data;
+                        } else if (data.code === 401) {
+                            self.$message.error('Session expired, please login again');
+                            self.handleLogout();
+                        } else {
+                            self.$message.error(data.msg || 'Failed to fetch config');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    })
+                    .finally(function() {
+                        self.configLoading = false;
+                    });
                 },
             },
         });
