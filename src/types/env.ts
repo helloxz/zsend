@@ -1,6 +1,8 @@
 export type AppD1Statement = {
     bind: (...values: unknown[]) => AppD1Statement;
-    run: () => Promise<unknown>;
+    first: <T = unknown>() => Promise<T | null>;
+    all: <T = unknown>() => Promise<{ results?: T[] }>;
+    run: () => Promise<{ meta: { changes: number } }>;
 };
 
 export type AppD1Database = {

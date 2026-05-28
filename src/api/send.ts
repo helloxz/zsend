@@ -1,7 +1,8 @@
 import { marked } from "marked";
 import { Context } from "hono";
 import { WorkerMailer } from "worker-mailer";
-import { insertMailLog } from "../db";
+import { insertMailLog, getAllEnabledSmtpAccounts } from "../db";
+import type { SmtpAccount } from "../db";
 import type { AppBindings, AppD1Database } from "../types/env";
 
 type SendBody = {
@@ -43,19 +44,16 @@ type SendMailResult = {
     errorMessage?: string;
 };
 
-const parseSmtpConfigs = (value: unknown): SmtpConfig[] => {
-    // 本地开发和线上注入的格式可能不同，这里统一兜底成数组，避免后续匹配逻辑分叉。
-    if (Array.isArray(value)) {
-        return value as SmtpConfig[];
-    }
-
-    if (typeof value === "string") {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? (parsed as SmtpConfig[]) : [];
-    }
-
-    return [];
-};
+// 将 D1 中的 SmtpAccount 转换为发送时使用的 SmtpConfig 格式
+const accountToSmtpConfig = (account: SmtpAccount): SmtpConfig => ({
+    host: account.host,
+    port: account.port,
+    username: account.username,
+    password: account.password,
+    fromEmail: account.from_email ?? undefined,
+    protocol: account.protocol ?? undefined,
+    senderName: account.sender_name ?? undefined,
+});
 
 const escapeHtml = (value: string) => {
     return value
@@ -449,15 +447,16 @@ export const send = async (c: Context<AppBindings>) => {
             });
         }
 
-        // SMTP_CONFIGS 可能来自 Wrangler 的数组注入，也可能是 JSON 字符串，统一在这里兼容解析。
-        const smtpConfigs = parseSmtpConfigs(c.env.SMTP_CONFIGS);
+        // 从 D1 读取所有启用的 SMTP 账号，转换为发件配置格式
+        const enabledAccounts = await getAllEnabledSmtpAccounts(c.env.DB);
+        const smtpConfigs = enabledAccounts.map(accountToSmtpConfig);
         // 先按 fromEmail 匹配；没命中再按 username 匹配，兼容前端继续传历史值。
         const smtpConfig = findSmtpConfig(smtpConfigs, from);
 
         if (!smtpConfig) {
             return c.json({
                 code: 400,
-                msg: "No matching SMTP config found for from address",
+                msg: "No matching SMTP account found for from address. Please check your SMTP accounts in the admin panel.",
                 data: null,
             });
         }

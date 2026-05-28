@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZSend</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui@2.15.14/lib/theme-chalk/index.css">
+    <style>
+        /* 全局样式重置 */
+        body { margin: 0; background: #f5f7fa; }
+        #app { min-height: 100vh; }
+
+        /* 登录页居中布局 */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-card { width: 400px; }
+        .login-title {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #303133;
+        }
+
+        /* 主布局：侧边栏 + 内容区 */
+        .app-layout { min-height: 100vh; }
+        .app-aside {
+            background: #304156;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .app-aside .el-menu {
+            border-right: none;
+            flex: 1;
+            overflow-y: auto;
+        }
+        .app-aside .menu-header {
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            background: #263445;
+            flex-shrink: 0;
+        }
+        .app-aside .logout-item {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 200px;
+            height: 56px;
+            border-top: 1px solid #3d4e5f;
+            flex: none;
+            flex-shrink: 0;
+            overflow: hidden;
+            z-index: 10;
+        }
+        .app-aside .logout-item .el-menu-item {
+            height: 56px;
+            line-height: 56px;
+        }
+        .app-main { padding: 20px; overflow-y: auto; }
+
+        /* 搜索栏 */
+        .search-bar {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        /* 分页栏 */
+        .pagination-bar {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        /* 账号管理页工具栏 */
+        .toolbar {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <router-view></router-view>
+    </div>
+
+    <!-- CDN 依赖：Vue 2 + Vue Router 3 + Element UI -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.7.16/dist/vue.min.js"></script>
+    <script src="https://unpkg.com/vue-router@3.6.5/dist/vue-router.js"></script>
+    <script src="https://unpkg.com/element-ui@2.15.14/lib/index.js"></script>
+    <script src="https://unpkg.com/element-ui@2.15.14/lib/umd/locale/en.js"></script>
+    <script>
+        ELEMENT.locale(ELEMENT.lang.en);
+
+        // ─── 工具函数 ──────────────────────────────────────────
+
+        // 从 sessionStorage 获取认证 token
+        function getToken() {
+            return sessionStorage.getItem('zsend_token') || '';
+        }
+
+        // 通用 API 请求封装，自动携带 token
+        function apiRequest(url, options) {
+            options = options || {};
+            var headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+            var token = getToken();
+            if (token) {
+                headers['Authorization'] = 'Bearer ' + token;
+            }
+            return fetch(url, Object.assign({}, options, { headers: headers }))
+                .then(function(res) { return res.json(); });
+        }
+
+        // 格式化日期时间
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            var d = new Date(dateStr);
+            var pad = function(n) { return String(n).padStart(2, '0'); };
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' '
+                 + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        }
+
+        // ─── 登录组件 ──────────────────────────────────────────
+
+        var LoginView = {
+            template: '<div class="login-container">' +
+                '<el-card class="login-card">' +
+                    '<h2 class="login-title">ZSend</h2>' +
+                    '<el-form @submit.native.prevent="handleLogin">' +
+                        '<el-form-item label="Token">' +
+                            '<el-input' +
+                                ' v-model="token"' +
+                                ' type="password"' +
+                                ' placeholder="Enter your token"' +
+                                ' show-password' +
+                                ' @keyup.enter.native="handleLogin"' +
+                            '></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item>' +
+                            '<el-button' +
+                                ' type="primary"' +
+                                ' :loading="loading"' +
+                                ' @click="handleLogin"' +
+                                ' style="width: 100%;"' +
+                            '>Login</el-button>' +
+                        '</el-form-item>' +
+                    '</el-form>' +
+                '</el-card>' +
+            '</div>',
+            data: function() {
+                return { token: '', loading: false };
+            },
+            methods: {
+                // 登录：验证 token 后跳转到日志页
+                handleLogin: function() {
+                    if (!this.token.trim()) {
+                        this.$message.warning('Please enter a token');
+                        return;
+                    }
+                    var self = this;
+                    self.loading = true;
+                    apiRequest('/api/v1/auth', {
+                        method: 'POST',
+                        body: JSON.stringify({ token: self.token }),
+                    })
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            sessionStorage.setItem('zsend_token', self.token);
+                            self.$message.success('Login successful');
+                            self.$router.push('/logs');
+                        } else {
+                            self.$message.error(data.msg || 'Invalid token');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    })
+                    .finally(function() {
+                        self.loading = false;
+                    });
+                }
+            }
+        };
+
+        // ─── 邮件日志组件 ──────────────────────────────────────
+
+        var LogsView = {
+            template: '<div>' +
+                '<el-card>' +
+                    '<div slot="header"><strong>Mail Logs</strong></div>' +
+                    '<div class="search-bar">' +
+                        '<el-input' +
+                            ' v-model="searchEmail"' +
+                            ' placeholder="Search by email"' +
+                            ' clearable' +
+                            ' @clear="handleClear"' +
+                            ' @keyup.enter.native="fetchLogs"' +
+                            ' style="width: 300px;"' +
+                        '></el-input>' +
+                        '<el-button type="primary" @click="fetchLogs" :loading="loading">Search</el-button>' +
+                    '</div>' +
+                    '<el-table :data="logs" border stripe style="width: 100%">' +
+                        '<el-table-column prop="created_at" label="Time" width="180">' +
+                            '<template slot-scope="scope">{{ formatDate(scope.row.created_at) }}</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column prop="from_email" label="From" width="200" show-overflow-tooltip></el-table-column>' +
+                        '<el-table-column prop="to_email" label="To" width="200" show-overflow-tooltip></el-table-column>' +
+                        '<el-table-column prop="subject" label="Subject" show-overflow-tooltip></el-table-column>' +
+                        '<el-table-column prop="status" label="Status" width="100">' +
+                            '<template slot-scope="scope">' +
+                                '<el-tag :type="statusType(scope.row.status)" size="small">' +
+                                    '{{ scope.row.status }}' +
+                                '</el-tag>' +
+                            '</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column prop="mail_type" label="Type" width="100"></el-table-column>' +
+                        '<el-table-column prop="content_text" label="Content" min-width="200">' +
+                            '<template slot-scope="scope">' +
+                                '<el-tooltip v-if="scope.row.content_text" placement="top" :open-delay="300">' +
+                                    '<div slot="content" style="max-width: 400px; word-break: break-all;">{{ scope.row.content_text }}</div>' +
+                                    '<span>{{ truncateText(scope.row.content_text) }}</span>' +
+                                '</el-tooltip>' +
+                            '</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column prop="request_ip" label="IP" width="140"></el-table-column>' +
+                    '</el-table>' +
+                    '<div class="pagination-bar">' +
+                        '<el-pagination' +
+                            ' background' +
+                            ' layout="total, prev, pager, next, sizes"' +
+                            ' :total="total"' +
+                            ' :page-size="pageSize"' +
+                            ' :current-page.sync="currentPage"' +
+                            ' :page-sizes="[10, 20, 50, 100]"' +
+                            ' @current-change="handlePageChange"' +
+                            ' @size-change="handleSizeChange"' +
+                        '></el-pagination>' +
+                    '</div>' +
+                '</el-card>' +
+            '</div>',
+            data: function() {
+                return {
+                    searchEmail: '',
+                    logs: [],
+                    total: 0,
+                    currentPage: 1,
+                    pageSize: 20,
+                    loading: false,
+                };
+            },
+            mounted: function() {
+                this.fetchLogs();
+            },
+            methods: {
+                formatDate: formatDate,
+                // 截断文本，超过 50 字符显示省略号
+                truncateText: function(text) {
+                    if (!text) return '';
+                    return text.length > 50 ? text.substring(0, 50) + '...' : text;
+                },
+                // 根据状态返回标签类型
+                statusType: function(status) {
+                    return status === 'success' ? 'success' : 'danger';
+                },
+                // 获取邮件日志列表
+                fetchLogs: function() {
+                    var self = this;
+                    self.loading = true;
+                    var params = new URLSearchParams({
+                        page: String(self.currentPage),
+                        pageSize: String(self.pageSize),
+                    });
+                    if (self.searchEmail.trim()) {
+                        params.set('email', self.searchEmail.trim());
+                    }
+                    apiRequest('/api/v1/logs?' + params.toString())
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.logs = data.data.items;
+                            self.total = data.data.total;
+                        } else if (data.code === 401) {
+                            self.$message.error('Session expired');
+                            self.$router.push('/login');
+                        } else {
+                            self.$message.error(data.msg || 'Failed to fetch logs');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    })
+                    .finally(function() {
+                        self.loading = false;
+                    });
+                },
+                handlePageChange: function(page) {
+                    this.currentPage = page;
+                    this.fetchLogs();
+                },
+                handleSizeChange: function(size) {
+                    this.pageSize = size;
+                    this.currentPage = 1;
+                    this.fetchLogs();
+                },
+                handleClear: function() {
+                    this.currentPage = 1;
+                    this.fetchLogs();
+                }
+            }
+        };
+
+        // ─── SMTP 账号管理组件 ────────────────────────────────
+
+        var AccountsView = {
+            template: '<div>' +
+                '<el-card>' +
+                    '<div slot="header"><strong>SMTP Accounts</strong></div>' +
+                    '<div class="toolbar">' +
+                        '<span></span>' +
+                        '<el-button type="primary" size="small" @click="openDialog(null)">Add Account</el-button>' +
+                    '</div>' +
+                    '<el-table :data="accounts" border stripe style="width: 100%">' +
+                        '<el-table-column prop="host" label="Host" width="180" show-overflow-tooltip></el-table-column>' +
+                        '<el-table-column prop="port" label="Port" width="80"></el-table-column>' +
+                        '<el-table-column prop="username" label="Username" width="200" show-overflow-tooltip></el-table-column>' +
+                        '<el-table-column prop="from_email" label="From Email" width="200" show-overflow-tooltip>' +
+                            '<template slot-scope="scope">{{ scope.row.from_email || dash }}</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column prop="sender_name" label="Sender Name" width="150" show-overflow-tooltip>' +
+                            '<template slot-scope="scope">{{ scope.row.sender_name || dash }}</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column prop="protocol" label="Protocol" width="100">' +
+                            '<template slot-scope="scope">{{ scope.row.protocol || "STARTTLS" }}</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column label="Enabled" width="90">' +
+                            '<template slot-scope="scope">' +
+                                '<el-switch :value="scope.row.enabled === 1" @change="toggleEnabled(scope.row)"></el-switch>' +
+                            '</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column prop="remark" label="Remark" min-width="150" show-overflow-tooltip>' +
+                            '<template slot-scope="scope">{{ scope.row.remark || dash }}</template>' +
+                        '</el-table-column>' +
+                        '<el-table-column label="Actions" width="150" fixed="right">' +
+                            '<template slot-scope="scope">' +
+                                '<el-button type="text" size="small" @click="openDialog(scope.row)">Edit</el-button>' +
+                                '<el-popconfirm title="Delete this account?" @confirm="handleDelete(scope.row.id)">' +
+                                    '<el-button type="text" size="small" style="color: #f56c6c;" slot="reference">Delete</el-button>' +
+                                '</el-popconfirm>' +
+                            '</template>' +
+                        '</el-table-column>' +
+                    '</el-table>' +
+                    '<div class="pagination-bar">' +
+                        '<el-pagination' +
+                            ' background' +
+                            ' layout="total, prev, pager, next"' +
+                            ' :total="total"' +
+                            ' :page-size="pageSize"' +
+                            ' :current-page.sync="currentPage"' +
+                            ' @current-change="handlePageChange"' +
+                        '></el-pagination>' +
+                    '</div>' +
+                '</el-card>' +
+
+                <!-- 新增/编辑弹窗 -->
+                '<el-dialog' +
+                    ' :title="dialogTitle"' +
+                    ' :visible.sync="dialogVisible"' +
+                    ' width="520px"' +
+                    ' :close-on-click-modal="false"' +
+                '>' +
+                    '<el-form :model="form" label-width="110px" size="small">' +
+                        '<el-form-item label="Host" required>' +
+                            '<el-input v-model="form.host" placeholder="smtp.example.com"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Port" required>' +
+                            '<el-input-number v-model="form.port" :min="1" :max="65535" style="width: 100%;"></el-input-number>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Username" required>' +
+                            '<el-input v-model="form.username" placeholder="user@example.com"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Password" required>' +
+                            '<el-input v-model="form.password" type="password" show-password placeholder="SMTP password"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="From Email">' +
+                            '<el-input v-model="form.fromEmail" placeholder="Leave empty to use username"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Sender Name">' +
+                            '<el-input v-model="form.senderName" placeholder="Display name"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Protocol">' +
+                            '<el-select v-model="form.protocol" style="width: 100%;">' +
+                                '<el-option label="STARTTLS (default)" value=""></el-option>' +
+                                '<el-option label="SSL (port 465)" value="ssl"></el-option>' +
+                            '</el-select>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Enabled">' +
+                            '<el-switch v-model="form.enabled"></el-switch>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Remark">' +
+                            '<el-input v-model="form.remark" type="textarea" :rows="2" placeholder="Optional note"></el-input>' +
+                        '</el-form-item>' +
+                    '</el-form>' +
+                    '<span slot="footer">' +
+                        '<el-button @click="dialogVisible = false">Cancel</el-button>' +
+                        '<el-button type="primary" :loading="saving" @click="handleSave">Save</el-button>' +
+                    '</span>' +
+                '</el-dialog>' +
+            '</div>',
+            data: function() {
+                return {
+                    accounts: [],
+                    total: 0,
+                    currentPage: 1,
+                    pageSize: 20,
+                    loading: false,
+                    dialogVisible: false,
+                    saving: false,
+                    dash: '\u2014',
+                    // 表单数据，id 为空表示新增
+                    form: {
+                        id: '',
+                        host: '',
+                        port: 587,
+                        username: '',
+                        password: '',
+                        fromEmail: '',
+                        senderName: '',
+                        protocol: '',
+                        enabled: true,
+                        remark: '',
+                    },
+                };
+            },
+            mounted: function() {
+                this.fetchAccounts();
+            },
+            computed: {
+                dialogTitle: function() {
+                    return this.form.id ? 'Edit Account' : 'Add Account';
+                }
+            },
+            methods: {
+                // 获取账号列表
+                fetchAccounts: function() {
+                    var self = this;
+                    self.loading = true;
+                    var params = new URLSearchParams({
+                        page: String(self.currentPage),
+                        pageSize: String(self.pageSize),
+                    });
+                    apiRequest('/api/v1/accounts?' + params.toString())
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.accounts = data.data.items;
+                            self.total = data.data.total;
+                        } else if (data.code === 401) {
+                            self.$message.error('Session expired');
+                            self.$router.push('/login');
+                        } else {
+                            self.$message.error(data.msg || 'Failed to fetch accounts');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    })
+                    .finally(function() {
+                        self.loading = false;
+                    });
+                },
+
+                // 打开新增/编辑弹窗；account 为 null 时是新增
+                openDialog: function(account) {
+                    if (account) {
+                        this.form = {
+                            id: account.id,
+                            host: account.host,
+                            port: account.port,
+                            username: account.username,
+                            password: account.password,
+                            fromEmail: account.from_email || '',
+                            senderName: account.sender_name || '',
+                            protocol: account.protocol || '',
+                            enabled: account.enabled === 1,
+                            remark: account.remark || '',
+                        };
+                    } else {
+                        this.form = {
+                            id: '',
+                            host: '',
+                            port: 587,
+                            username: '',
+                            password: '',
+                            fromEmail: '',
+                            senderName: '',
+                            protocol: '',
+                            enabled: true,
+                            remark: '',
+                        };
+                    }
+                    this.dialogVisible = true;
+                },
+
+                // 保存（新增或更新）
+                handleSave: function() {
+                    var self = this;
+                    // 基础前端校验
+                    if (!self.form.host || !self.form.port || !self.form.username || !self.form.password) {
+                        self.$message.warning('Please fill in all required fields');
+                        return;
+                    }
+                    self.saving = true;
+
+                    var payload = {
+                        host: self.form.host,
+                        port: self.form.port,
+                        username: self.form.username,
+                        password: self.form.password,
+                        fromEmail: self.form.fromEmail || null,
+                        senderName: self.form.senderName || null,
+                        protocol: self.form.protocol || null,
+                        enabled: self.form.enabled ? 1 : 0,
+                        remark: self.form.remark || null,
+                    };
+
+                    var url = '/api/v1/accounts';
+                    var method = 'POST';
+                    if (self.form.id) {
+                        url = '/api/v1/accounts/' + self.form.id;
+                        method = 'PUT';
+                    }
+
+                    apiRequest(url, { method: method, body: JSON.stringify(payload) })
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.$message.success(self.form.id ? 'Account updated' : 'Account created');
+                            self.dialogVisible = false;
+                            self.fetchAccounts();
+                        } else {
+                            self.$message.error(data.msg || 'Operation failed');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    })
+                    .finally(function() {
+                        self.saving = false;
+                    });
+                },
+
+                // 删除账号
+                handleDelete: function(id) {
+                    var self = this;
+                    apiRequest('/api/v1/accounts/' + id, { method: 'DELETE' })
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.$message.success('Account deleted');
+                            self.fetchAccounts();
+                        } else {
+                            self.$message.error(data.msg || 'Delete failed');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    });
+                },
+
+                // 切换启用/禁用状态
+                toggleEnabled: function(row) {
+                    var self = this;
+                    var newEnabled = row.enabled === 1 ? 0 : 1;
+                    apiRequest('/api/v1/accounts/' + row.id, {
+                        method: 'PUT',
+                        body: JSON.stringify({ enabled: newEnabled }),
+                    })
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.$message.success(newEnabled ? 'Account enabled' : 'Account disabled');
+                            self.fetchAccounts();
+                        } else {
+                            self.$message.error(data.msg || 'Update failed');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    });
+                },
+
+                handlePageChange: function(page) {
+                    this.currentPage = page;
+                    this.fetchAccounts();
+                },
+            }
+        };
+
+        // ─── 带侧边栏的布局壳组件 ─────────────────────────────
+
+        var AppLayout = {
+            template: '<el-container class="app-layout">' +
+                '<el-aside width="200px" class="app-aside">' +
+                    '<div class="menu-header">ZSend</div>' +
+                    '<el-menu' +
+                        ' :default-active="activeMenu"' +
+                        ' :router="true"' +
+                        ' background-color="#304156"' +
+                        ' text-color="#bfcbd9"' +
+                        ' active-text-color="#409EFF"' +
+                    '>' +
+                        '<el-menu-item index="/logs">' +
+                            '<i class="el-icon-document"></i>' +
+                            '<span>Mail Logs</span>' +
+                        '</el-menu-item>' +
+                        '<el-menu-item index="/accounts">' +
+                            '<i class="el-icon-setting"></i>' +
+                            '<span>SMTP Accounts</span>' +
+                        '</el-menu-item>' +
+                    '</el-menu>' +
+                    '<el-menu' +
+                        ' background-color="#304156"' +
+                        ' text-color="#bfcbd9"' +
+                        ' active-text-color="#409EFF"' +
+                        ' class="logout-item"' +
+                    '>' +
+                        '<el-menu-item @click="handleLogout">' +
+                            '<i class="el-icon-switch-button"></i>' +
+                            '<span>Logout</span>' +
+                        '</el-menu-item>' +
+                    '</el-menu>' +
+                '</el-aside>' +
+                '<el-main class="app-main">' +
+                    '<router-view></router-view>' +
+                '</el-main>' +
+            '</el-container>',
+            computed: {
+                activeMenu: function() {
+                    return this.$route.path;
+                }
+            },
+            methods: {
+                // 退出登录，清除 token 后跳转登录页
+                handleLogout: function() {
+                    sessionStorage.removeItem('zsend_token');
+                    this.$router.push('/login');
+                }
+            }
+        };
+
+        // ─── 路由配置 ──────────────────────────────────────────
+
+        var routes = [
+            { path: '/login', component: LoginView },
+            {
+                path: '/',
+                component: AppLayout,
+                children: [
+                    { path: '', redirect: '/logs' },
+                    { path: 'logs', component: LogsView },
+                    { path: 'accounts', component: AccountsView },
+                ],
+            },
+            { path: '*', redirect: '/logs' },
+        ];
+
+        var router = new VueRouter({
+            routes: routes,
+        });
+
+        // 全局路由守卫：未登录时重定向到登录页
+        router.beforeEach(function(to, from, next) {
+            if (to.path !== '/login' && !getToken()) {
+                next('/login');
+            } else if (to.path === '/login' && getToken()) {
+                next('/logs');
+            } else {
+                next();
+            }
+        });
+
+        // ─── 启动 Vue 实例 ────────────────────────────────────
+
+        new Vue({
+            el: '#app',
+            router: router,
+        });
+    </script>
+</body>
+</html>

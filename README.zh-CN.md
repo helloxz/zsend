@@ -1,6 +1,6 @@
 # ZSend
 
-[English README](./README.md)
+[English README](./README.md) | [开发文档](./DEV.md)
 
 ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对外提供 HTTP API，并根据请求中的发件人地址匹配对应 SMTP 配置发送邮件，并将发送日志记录到 Cloudflare D1。
 
@@ -13,7 +13,7 @@ ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对
 - SMTP 发送失败时自动重试一次
 - 将邮件发送日志写入 Cloudflare D1
 - 发信接口使用 Bearer Token 鉴权
-- 支持WebUI查看发送日志
+  - 支持WebUI查看发送日志
 
 ### 发送邮件
 

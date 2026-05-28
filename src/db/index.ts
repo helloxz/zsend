@@ -166,3 +166,169 @@ export const queryMailLogs = async (
         totalPages: Math.ceil(total / pageSize),
     };
 };
+
+// ─── SMTP 账号管理 ────────────────────────────────────────────
+
+const SMTP_ACCOUNTS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS smtp_accounts (
+  id TEXT PRIMARY KEY,
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  username TEXT NOT NULL,
+  password TEXT NOT NULL,
+  from_email TEXT,
+  sender_name TEXT,
+  protocol TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  remark TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);`;
+
+export const ensureSmtpAccountsTable = async (db?: AppD1Database) => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+    await db.prepare(SMTP_ACCOUNTS_SCHEMA.trim()).run();
+};
+
+export type SmtpAccount = {
+    id: string;
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    from_email: string | null;
+    sender_name: string | null;
+    protocol: string | null;
+    enabled: number;
+    remark: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type SmtpAccountPayload = {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    fromEmail?: string;
+    senderName?: string;
+    protocol?: string;
+    enabled?: number;
+    remark?: string;
+};
+
+// 列出所有启用的 SMTP 账号，供发件时匹配
+export const getAllEnabledSmtpAccounts = async (db: AppD1Database | undefined): Promise<SmtpAccount[]> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+    const result = await db.prepare("SELECT * FROM smtp_accounts WHERE enabled = 1").all<SmtpAccount>();
+    return result.results || [];
+};
+
+// 分页查询全部 SMTP 账号（含禁用的）
+export const querySmtpAccounts = async (
+    db: AppD1Database | undefined,
+    page: number = 1,
+    pageSize: number = 20
+): Promise<{ items: SmtpAccount[]; total: number; page: number; pageSize: number; totalPages: number }> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+
+    const p = page > 0 ? page : 1;
+    const ps = pageSize > 0 ? pageSize : 20;
+    const offset = (p - 1) * ps;
+
+    const countResult = await db.prepare("SELECT COUNT(*) as total FROM smtp_accounts").first<{ total: number }>();
+    const total = countResult?.total ?? 0;
+
+    const items = await db.prepare("SELECT * FROM smtp_accounts ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .bind(ps, offset)
+        .all<SmtpAccount>();
+
+    return { items: items.results || [], total, page: p, pageSize: ps, totalPages: Math.ceil(total / ps) };
+};
+
+// 按 ID 查询单个账号
+export const getSmtpAccountById = async (db: AppD1Database | undefined, id: string): Promise<SmtpAccount | null> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+    return await db.prepare("SELECT * FROM smtp_accounts WHERE id = ?").bind(id).first<SmtpAccount>() ?? null;
+};
+
+// 新增 SMTP 账号
+export const insertSmtpAccount = async (db: AppD1Database | undefined, payload: SmtpAccountPayload): Promise<SmtpAccount> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    await db.prepare(
+        `INSERT INTO smtp_accounts (id, host, port, username, password, from_email, sender_name, protocol, enabled, remark, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+        id,
+        payload.host,
+        payload.port,
+        payload.username,
+        payload.password,
+        payload.fromEmail ?? null,
+        payload.senderName ?? null,
+        payload.protocol ?? null,
+        payload.enabled ?? 1,
+        payload.remark ?? null,
+        now,
+        now
+    ).run();
+
+    return (await getSmtpAccountById(db, id))!;
+};
+
+// 更新 SMTP 账号（部分更新）
+export const updateSmtpAccount = async (db: AppD1Database | undefined, id: string, payload: Partial<SmtpAccountPayload>): Promise<SmtpAccount | null> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+
+    const existing = await getSmtpAccountById(db, id);
+    if (!existing) return null;
+
+    // 动态构建 SET 子句，只更新传入的字段
+    const fields: string[] = [];
+    const bindings: (string | number)[] = [];
+
+    if (payload.host !== undefined) { fields.push("host = ?"); bindings.push(payload.host); }
+    if (payload.port !== undefined) { fields.push("port = ?"); bindings.push(payload.port); }
+    if (payload.username !== undefined) { fields.push("username = ?"); bindings.push(payload.username); }
+    if (payload.password !== undefined) { fields.push("password = ?"); bindings.push(payload.password); }
+    if (payload.fromEmail !== undefined) { fields.push("from_email = ?"); bindings.push(payload.fromEmail ?? ""); }
+    if (payload.senderName !== undefined) { fields.push("sender_name = ?"); bindings.push(payload.senderName ?? ""); }
+    if (payload.protocol !== undefined) { fields.push("protocol = ?"); bindings.push(payload.protocol ?? ""); }
+    if (payload.enabled !== undefined) { fields.push("enabled = ?"); bindings.push(payload.enabled); }
+    if (payload.remark !== undefined) { fields.push("remark = ?"); bindings.push(payload.remark ?? ""); }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("updated_at = ?");
+    bindings.push(new Date().toISOString());
+    bindings.push(id);
+
+    await db.prepare(`UPDATE smtp_accounts SET ${fields.join(", ")} WHERE id = ?`).bind(...bindings).run();
+
+    return await getSmtpAccountById(db, id);
+};
+
+// 删除 SMTP 账号
+export const deleteSmtpAccount = async (db: AppD1Database | undefined, id: string): Promise<boolean> => {
+    if (!db) {
+        throw new Error("D1 binding DB is not configured");
+    }
+    const result = await db.prepare("DELETE FROM smtp_accounts WHERE id = ?").bind(id).run();
+    return result.meta.changes > 0;
+};

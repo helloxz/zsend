@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
-import { ensureMailLogsTable } from './db'
+import { ensureMailLogsTable, ensureSmtpAccountsTable } from './db'
 import { router } from './routers'
 import type { AppBindings } from './types/env'
 
@@ -10,7 +10,10 @@ let dbInitPromise: Promise<void> | null = null
 
 const ensureDatabaseReady = (env: AppBindings["Bindings"]) => {
     if (!dbInitPromise) {
-        dbInitPromise = ensureMailLogsTable(env.DB).catch((error) => {
+        dbInitPromise = Promise.all([
+            ensureMailLogsTable(env.DB),
+            ensureSmtpAccountsTable(env.DB),
+        ]).then(() => {}).catch((error) => {
             dbInitPromise = null
             throw error
         })
