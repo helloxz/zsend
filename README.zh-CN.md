@@ -13,7 +13,7 @@ ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对
 - SMTP 发送失败时自动重试一次
 - 将邮件发送日志写入 Cloudflare D1
 - 发信接口使用 Bearer Token 鉴权
-  - 支持WebUI查看发送日志
+- 支持WebUI查看发送日志和配置SMTP账号
 
 ### 发送邮件
 
@@ -38,7 +38,7 @@ Content-Type: application/json
 
 字段说明：
 
-- `from`：必填，服务端会先尝试精确匹配某个 `SMTP_CONFIGS[].fromEmail`；如果没有命中，再回退匹配 `SMTP_CONFIGS[].username`
+- `from`：必填，发件人邮箱
 - `to`：必填，收件人邮箱，可以是字符串或数组。比如：`["user1@example.com", "user2@example.com"]`
 - `title`：必填，邮件主题
 - `content`：必填，邮件正文
@@ -130,10 +130,6 @@ database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```bash
 wrangler secret put TOKEN
 # 输入任意字符串，后续调用接口需要使用这个字符串做为 Bearer Token
-
-wrangler secret put SMTP_CONFIGS
-# 输入 SMTP 配置的 JSON 字符串，例如：
-# [{"host":"smtp.example.com","port":587,"username":"user@example.com","password":"your-password","protocol":"tls","senderName":"ZSend"}]
 ```
 
 ### 4. 部署项目
@@ -145,7 +141,11 @@ wrangler deploy
 
 部署成功后会显示访问地址，例如：`https://zsend.your-subdomain.workers.dev`
 
-### 5. 测试发信
+### 5. 配置 SMTP 账号
+
+部署完成后，访问 `https://zsend.your-subdomain.workers.dev` 即可通过 Web UI 查看发信日志和配置SMTP账号。
+
+### 6. 测试发信
 
 ```bash
 curl -X POST "https://zsend.your-subdomain.workers.dev/api/v1/send" \
@@ -160,7 +160,3 @@ curl -X POST "https://zsend.your-subdomain.workers.dev/api/v1/send" \
     "sender_name": "ZSend 通知"
   }'
 ```
-
-### 6. 查看日志
-
-部署完成后，访问 `https://zsend.your-subdomain.workers.dev` 即可通过 Web UI 查看发信日志。
