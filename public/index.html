@@ -87,6 +87,30 @@
             justify-content: space-between;
             align-items: center;
         }
+        .toolbar-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .curl-preview {
+            margin: 0;
+            padding: 12px;
+            background: #f5f7fa;
+            border: 1px solid #e4e7ed;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .account-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .account-actions .el-button {
+            margin-left: 0;
+        }
     </style>
 </head>
 <body>
@@ -326,7 +350,10 @@
                     '<div slot="header"><strong>SMTP Accounts</strong></div>' +
                     '<div class="toolbar">' +
                         '<span></span>' +
-                        '<el-button type="primary" size="small" @click="openDialog(null)">Add Account</el-button>' +
+                        '<div class="toolbar-actions">' +
+                            '<el-button type="success" size="small" icon="el-icon-message" @click="openSendDialog">Send Email</el-button>' +
+                            '<el-button type="primary" size="small" icon="el-icon-plus" @click="openDialog(null)">Add Account</el-button>' +
+                        '</div>' +
                     '</div>' +
                     '<el-table :data="accounts" border stripe style="width: 100%">' +
                         '<el-table-column prop="host" label="Host" width="180" show-overflow-tooltip></el-table-column>' +
@@ -351,10 +378,17 @@
                         '</el-table-column>' +
                         '<el-table-column label="Actions" width="150" fixed="right">' +
                             '<template slot-scope="scope">' +
-                                '<el-button type="text" size="small" @click="openDialog(scope.row)">Edit</el-button>' +
-                                '<el-popconfirm title="Delete this account?" @confirm="handleDelete(scope.row.id)">' +
-                                    '<el-button type="text" size="small" style="color: #f56c6c;" slot="reference">Delete</el-button>' +
-                                '</el-popconfirm>' +
+                                '<div class="account-actions">' +
+                                    '<el-tooltip content="API Example" placement="top">' +
+                                        '<el-button type="text" size="small" icon="el-icon-document-copy" @click="openApiDialog(scope.row)"></el-button>' +
+                                    '</el-tooltip>' +
+                                    '<el-tooltip content="Edit" placement="top">' +
+                                        '<el-button type="text" size="small" icon="el-icon-edit" @click="openDialog(scope.row)"></el-button>' +
+                                    '</el-tooltip>' +
+                                    '<el-popconfirm title="Delete this account?" @confirm="handleDelete(scope.row.id)">' +
+                                        '<el-button type="text" size="small" icon="el-icon-delete" style="color: #f56c6c;" slot="reference"></el-button>' +
+                                    '</el-popconfirm>' +
+                                '</div>' +
                             '</template>' +
                         '</el-table-column>' +
                     '</el-table>' +
@@ -414,6 +448,61 @@
                         '<el-button type="primary" :loading="saving" @click="handleSave">Save</el-button>' +
                     '</span>' +
                 '</el-dialog>' +
+
+                <!-- 发送邮件弹窗 -->
+                '<el-dialog' +
+                    ' title="Send Email"' +
+                    ' :visible.sync="sendDialogVisible"' +
+                    ' width="560px"' +
+                    ' :close-on-click-modal="false"' +
+                '>' +
+                    '<el-form :model="sendForm" label-width="100px" size="small">' +
+                        '<el-form-item label="Title" required>' +
+                            '<el-input v-model="sendForm.title" placeholder="Email subject"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="From" required>' +
+                            '<el-select v-model="sendForm.from" placeholder="Select SMTP username" style="width: 100%;">' +
+                                '<el-option' +
+                                    ' v-for="account in accounts"' +
+                                    ' :key="account.id"' +
+                                    ' :label="account.username"' +
+                                    ' :value="account.username"' +
+                                '></el-option>' +
+                            '</el-select>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="To" required>' +
+                            '<el-input v-model="sendForm.to" placeholder="recipient@example.com"></el-input>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Type" required>' +
+                            '<el-select v-model="sendForm.type" style="width: 100%;">' +
+                                '<el-option label="text" value="text"></el-option>' +
+                                '<el-option label="html" value="html"></el-option>' +
+                                '<el-option label="markdown" value="markdown"></el-option>' +
+                            '</el-select>' +
+                        '</el-form-item>' +
+                        '<el-form-item label="Content" required>' +
+                            '<el-input v-model="sendForm.content" type="textarea" :rows="6" placeholder="Email content"></el-input>' +
+                        '</el-form-item>' +
+                    '</el-form>' +
+                    '<span slot="footer">' +
+                        '<el-button @click="sendDialogVisible = false">Cancel</el-button>' +
+                        '<el-button type="primary" :loading="sending" @click="handleSendEmail">Send</el-button>' +
+                    '</span>' +
+                '</el-dialog>' +
+
+                <!-- API 示例弹窗 -->
+                '<el-dialog' +
+                    ' title="API Example"' +
+                    ' :visible.sync="apiDialogVisible"' +
+                    ' width="720px"' +
+                    ' :close-on-click-modal="false"' +
+                '>' +
+                    '<pre class="curl-preview">{{ apiCurl }}</pre>' +
+                    '<span slot="footer">' +
+                        '<el-button @click="apiDialogVisible = false">Close</el-button>' +
+                        '<el-button type="primary" icon="el-icon-document-copy" @click="copyApiCurl">Copy</el-button>' +
+                    '</span>' +
+                '</el-dialog>' +
             '</div>',
             data: function() {
                 return {
@@ -423,7 +512,11 @@
                     pageSize: 20,
                     loading: false,
                     dialogVisible: false,
+                    sendDialogVisible: false,
+                    apiDialogVisible: false,
                     saving: false,
+                    sending: false,
+                    apiCurl: '',
                     dash: '\u2014',
                     // 表单数据，id 为空表示新增
                     form: {
@@ -437,6 +530,13 @@
                         protocol: '',
                         enabled: true,
                         remark: '',
+                    },
+                    sendForm: {
+                        title: '',
+                        from: '',
+                        to: '',
+                        type: 'markdown',
+                        content: '',
                     },
                 };
             },
@@ -592,6 +692,98 @@
                     .catch(function() {
                         self.$message.error('Network error');
                     });
+                },
+
+                openSendDialog: function() {
+                    this.sendForm = {
+                        title: '',
+                        from: this.accounts.length ? this.accounts[0].username : '',
+                        to: '',
+                        type: 'markdown',
+                        content: '',
+                    };
+                    this.sendDialogVisible = true;
+                },
+
+                handleSendEmail: function() {
+                    var self = this;
+                    if (!self.sendForm.title || !self.sendForm.from || !self.sendForm.to || !self.sendForm.content) {
+                        self.$message.warning('Please fill in all required fields');
+                        return;
+                    }
+
+                    self.sending = true;
+                    apiRequest('/api/v1/send', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            from: self.sendForm.from,
+                            to: self.sendForm.to,
+                            title: self.sendForm.title,
+                            content: self.sendForm.content,
+                            type: self.sendForm.type,
+                        }),
+                    })
+                    .then(function(data) {
+                        if (data.code === 200) {
+                            self.$message.success('Email request accepted');
+                            self.sendDialogVisible = false;
+                        } else if (data.code === 401) {
+                            self.$message.error('Session expired');
+                            self.$router.push('/login');
+                        } else {
+                            self.$message.error(data.msg || 'Send failed');
+                        }
+                    })
+                    .catch(function() {
+                        self.$message.error('Network error');
+                    })
+                    .finally(function() {
+                        self.sending = false;
+                    });
+                },
+
+                openApiDialog: function(row) {
+                    var payload = {
+                        from: row.username,
+                        to: 'recipient@example.com',
+                        title: 'Welcome to ZSend',
+                        content: '# Hello\nThis email was sent by ZSend.',
+                        type: 'markdown',
+                        sender_name: row.sender_name || 'ZSend Notifications',
+                    };
+                    this.apiCurl = [
+                        'curl -X POST "' + window.location.origin + '/api/v1/send" \\',
+                        '  -H "Authorization: Bearer ' + getToken() + '" \\',
+                        '  -H "Content-Type: application/json" \\',
+                        "  -d '" + JSON.stringify(payload, null, 2) + "'",
+                    ].join('\n');
+                    this.apiDialogVisible = true;
+                },
+
+                copyApiCurl: function() {
+                    var self = this;
+                    var copyText = function() {
+                        var textarea = document.createElement('textarea');
+                        textarea.value = self.apiCurl;
+                        textarea.setAttribute('readonly', 'readonly');
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        self.$message.success('Copied');
+                    };
+
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(self.apiCurl)
+                            .then(function() {
+                                self.$message.success('Copied');
+                            })
+                            .catch(copyText);
+                    } else {
+                        copyText();
+                    }
                 },
 
                 handlePageChange: function(page) {

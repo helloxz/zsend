@@ -93,6 +93,7 @@ curl -X POST "http://127.0.0.1:8000/api/v1/send" \
 
 1. 安装 [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
 2. 登录 Cloudflare 账号
+3. 安装 [Bun](https://bun.com/)
 
 ```bash
 wrangler login
