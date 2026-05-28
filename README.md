@@ -93,6 +93,7 @@ Field reference:
 
 1. Install [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
 2. Log in to your Cloudflare account
+3. Install [Bun](https://bun.com/)
 
 ```bash
 wrangler login
