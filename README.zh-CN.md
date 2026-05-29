@@ -1,91 +1,27 @@
 # ZSend
 
-[English README](./README.md) | [开发文档](./DEV.md)
+[English README](./README.md)
 
-ZSend 是一个基于 Cloudflare Workers 的 SMTP 转 HTTP 发信服务。它对外提供 HTTP API，并根据请求中的发件人地址匹配对应 SMTP 配置发送邮件，并将发送日志记录到 Cloudflare D1。
+ZSend 是一个部署在 Cloudflare Workers 上的邮件发送网关，提供 Web 管理后台、多 SMTP 账号管理和统一的 HTTP 发信 API。
 
 ## 项目特性
 
-- 基于 Cloudflare Workers 和 `Hono.js`
-- 通过 HTTP 接口发送邮件，支持多 SMTP 账号
-- 按请求里的 `from` 地址精确匹配 SMTP 账号
-- 支持 `text`、`html`、`markdown` 三种正文类型
-- SMTP 发送失败时自动重试一次
-- 将邮件发送日志写入 Cloudflare D1
-- 发信接口使用 Bearer Token 鉴权
-- 支持WebUI查看发送日志和配置SMTP账号
+- 支持 Cloudflare Workers 部署
+- 可视化管理：支持WebUI管理和查看邮件发送日志
+- 支持配置多个 SMTP 账号
+- 提供统一HTTP API 发送邮件
+- 支持 `text`、`html`、`markdown` 内容
+- 自动重试：SMTP 发送失败时自动重试一次
+- 发信日志：每次发信请求都会记录日志
+- 鉴权访问：发信接口使用 Bearer Token 鉴权
 
-### 发送邮件
+## 部分截图
 
-```http
-POST /api/v1/send
-Authorization: Bearer <TOKEN>
-Content-Type: application/json
-```
+![CleanShot 2026-05-29 at 08.08.59@2x.png](https://img.rss.ink/2026/05/29/gvOofSkB.png)
 
-请求体示例：
+![](https://img.rss.ink/2026/05/29/q2D07OqN.png)
 
-```json
-{
-  "from": "no-reply@example.com",
-  "to": "user@example.com",
-  "title": "欢迎使用",
-  "content": "# Hello\n这是一封由 ZSend 发出的邮件。",
-  "type": "markdown",
-  "sender_name": "ZSend 通知"
-}
-```
-
-字段说明：
-
-- `from`：必填，发件人邮箱
-- `to`：必填，收件人邮箱，可以是字符串或数组。比如：`["user1@example.com", "user2@example.com"]`
-- `title`：必填，邮件主题
-- `content`：必填，邮件正文
-- `type`：可选，只支持 `text`、`html`、`markdown`，默认是 `text`
-- `sender_name`：可选，本次请求的发件人显示名称，会覆盖配置里的默认值
-
-`curl` 示例：
-
-```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/send" \
-  -H "Authorization: Bearer your-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "from": "no-reply@example.com",
-    "to": "user@example.com",
-    "title": "欢迎使用",
-    "content": "# Hello\n这是一封由 ZSend 发出的邮件。",
-    "type": "markdown",
-    "sender_name": "ZSend 通知"
-  }'
-```
-
-### `SMTP_CONFIGS` 结构
-
-```json
-[
-  {
-    "host": "smtp.example.com",
-    "port": 587,
-    "username": "smtp-login@example.com",
-    "password": "your-password",
-    "fromEmail": "no-reply@example.com",
-    "protocol": "tls",
-    "senderName": "ZSend"
-  }
-]
-```
-
-字段说明：
-
-- `host`：SMTP 服务器地址
-- `port`：SMTP 端口
-- `username`：SMTP 登录账号
-- `password`：SMTP 密码
-- `fromEmail`：可选，实际发信邮箱地址；未配置或为空时回退为 `username`
-- `protocol`：填 `ssl` 时按隐式 TLS 发送，否则按 STARTTLS 处理
-- `senderName`：该 SMTP 账号默认显示的发件人名称
+![CleanShot 2026-05-29 at 08.11.38@2x.png](https://img.rss.ink/2026/05/29/6ZYtC2Om.png)
 
 ## 部署到 Cloudflare Workers
 
@@ -161,3 +97,51 @@ curl -X POST "https://zsend.your-subdomain.workers.dev/api/v1/send" \
     "sender_name": "ZSend 通知"
   }'
 ```
+
+## 发送邮件
+
+```http
+POST /api/v1/send
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+```
+
+请求体示例：
+
+```json
+{
+  "from": "no-reply@example.com",
+  "to": "user@example.com",
+  "title": "欢迎使用",
+  "content": "# Hello\n这是一封由 ZSend 发出的邮件。",
+  "type": "markdown",
+  "sender_name": "ZSend 通知"
+}
+```
+
+字段说明：
+
+- `from`：必填，发件人邮箱
+- `to`：必填，收件人邮箱，可以是字符串或数组。比如：`["user1@example.com", "user2@example.com"]`
+- `title`：必填，邮件主题
+- `content`：必填，邮件正文
+- `type`：可选，只支持 `text`、`html`、`markdown`，默认是 `text`
+- `sender_name`：可选，本次请求的发件人显示名称，会覆盖配置里的默认值
+
+`curl` 示例：
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/send" \
+  -H "Authorization: Bearer your-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from": "no-reply@example.com",
+    "to": "user@example.com",
+    "title": "欢迎使用",
+    "content": "# Hello\n这是一封由 ZSend 发出的邮件。",
+    "type": "markdown",
+    "sender_name": "ZSend 通知"
+  }'
+```
+
+
